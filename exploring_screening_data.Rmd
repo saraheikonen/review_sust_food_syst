@@ -1,0 +1,1482 @@
+---
+title: "Summary statistics of review papers"
+author: "Johannes Piipponen, Sara Heikonen"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+
+This document contains descriptive statistics of file "List of papers 4.07.xlsx".
+We calculate sums for different categories and eventually plot maps out of those
+
+
+This document presents a comprehensive analysis of the dataset from the file "List of papers 4.07.xlsx", focusing on the descriptive statistics of various categories. The primary objective is to calculate the frequency of occurrences in different categories, such as
+
+Discipline, 
+Geographical_range, 
+Scale_of_study, 
+Research_topic_effects,
+Socioeconomic_attributes_drivers,
+Time_scale, and
+Direction_of_effects. 
+
+In the end, we will visualize the results in the form of maps, providing a clear and concise representation of the data's distribution across these categories.
+
+
+
+
+# Read and clean the data 
+ ## show only the structure of data frame here
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+
+# where figures will be saved:
+fig_folder <- "figures/"
+
+df_raw <- read_xlsx("List of papers 4.07.xlsx",
+                col_names = TRUE,
+                range = 'AB2:AQ594',
+                trim_ws = TRUE, 
+                .name_repair = 'unique')
+
+
+## select only relevant columns
+df <- df_raw %>% 
+  dplyr::select(-c(starts_with("Other "), starts_with("Magnitude of ef"),
+                   starts_with("Relevance"))) %>% 
+  # make col names shorter
+  setNames(substr(names(.), 1, 8))
+
+
+
+
+# Rename columns 
+# this approach is possibly robust also if the name of columns in excel change..
+df <- df %>% 
+  rename(Included = Included,
+         Discipline = Discipli,
+         Geographical_range = Geograph,
+         Scale_of_study = `Scale of`,
+         Research_topic_effects = Research,
+         Socioeconomic_attributes_drivers = Socioeco,
+         Time_scale = `Time sca`,
+         Direction_of_effects = Directio,
+         Reviewer = `Full pap`)
+
+# Fix formatting issues
+
+df <-  data.frame(lapply(df, function(x) {gsub(",", ";", x)}))
+df <-  data.frame(lapply(df, function(x) {gsub(" ", "", x)}))
+df <-  data.frame(lapply(df, function(x) {gsub(":", ";", x)}))
+df <-  data.frame(lapply(df, function(x) {gsub(";;", ";", x)}))
+df <-  data.frame(lapply(df, function(x) {gsub("^\\;|\\;$", "", x)}))
+
+# included and excluded papers
+df_all <- df
+
+# Select only included papers
+df <- df %>% 
+  filter(as.numeric(Included) == 1)%>% # must convert this col to numeric for filtering
+  dplyr::select(-Reviewer)
+
+
+str(df) # check -- all chr now, which is handy when separating
+
+#
+
+```
+
+
+# Basic bar plot function for all variables
+```{r}
+
+plot_bar <- function(df_variable, x_label, tick_labels, save_path) {
+  
+  df_variable <- df_variable %>%
+    mutate(Description = fct_reorder(Description, Number_of_cases, .desc=TRUE))
+  y_limit <- max(df_variable$Number_of_cases) + 20
+  
+  plt <- ggplot(data = df_variable, aes(x = Description,
+                                        y = Number_of_cases)) +
+         geom_bar(stat = 'identity') + 
+         theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+         scale_x_discrete(expand = c(0,0), labels = tick_labels) +
+         scale_y_continuous(expand = c(0,0),
+                            limits = c(0, y_limit)) +
+         ylab("Number of cases") +
+         xlab(x_label)
+  
+  plot(plt)
+  
+  ggsave(save_path, plt, height = 20, width = 50,
+           units = "cm")
+  
+  
+}
+
+```
+
+
+# Discipline
+
+
+```{r warning=FALSE}
+# Step 1: Create a reference tibble
+mylist_discipline <- tibble(
+  Description = 
+  c("1=economics (including agricultural economics)", 
+    "2=biology (including ecology, nutrition)", 
+    "3=agriculture (including forestry)", 
+    "4=geography (including climatology, human geography)", 
+    "5=sociology", 
+    "6=political science (including policy)", 
+    "7=environmental science", 
+    "8=others", 
+    "9=psychology", 
+    "10=consumer studies", 
+    "11=anthropology"))    %>% 
+  mutate(ID = 1:nrow(.))
+
+
+
+
+
+# Step 2: Prepare the  data frame
+  # 2.1: Select the Discipline column from the original data frame
+df_discipline <- df %>% 
+  dplyr::select(Discipline) %>% 
+  # 2.2: Add a value_counts column to store the number of disciplines in each cell
+  # (e.g. there might be values  "1;2;3" in one cell --> = 3obs total)
+  mutate(value_counts = str_count(Discipline, ";") + 1) # add +1 as otherwise would be 0
+
+
+
+
+
+# Step 3: Separate multiple disciplines in a cell into individual columns
+  # 3.1: Get the maximum number of disciplines within a single cell
+max_value_discipline <- max(df_discipline$value_counts, na.rm = T)
+  
+  # 3.2: Separate the Discipline column based on the maximum number of disciplines
+  # there will be 7 cols for discipline, co1:col7
+df_discipline_separated <- df_discipline %>%
+  separate(col = Discipline,
+           into = paste0("col", 1:max_value_discipline),
+           sep = ";",
+           remove = FALSE) %>%
+  # 3.3: Convert separated columns to numeric data type
+  mutate(across(starts_with("col"), as.numeric))
+
+
+
+
+# Step 4: Transform the data frame into a longer format with one discipline per row
+  # so first row  5 NA  NA  NA  NA  NA  NA forms now the first 7 rows
+  # group_by works nicely after this 
+df_discipline_longer <- df_discipline_separated %>%
+  pivot_longer(cols = starts_with("col"),
+               names_to = "col_name",
+               values_to = "Discipline_num")
+
+
+
+# Step 5: Count the occurrences of each unique discipline number
+df_discipline_count <- df_discipline_longer %>%
+  group_by(Discipline_num) %>%
+  summarise(Number_of_cases = n())
+
+
+# Step 6: Remove rows with NA discipline numbers and join the count with discipline descriptions
+df_discipline_count <- df_discipline_count %>%
+  filter(!is.na(Discipline_num)) %>%
+  left_join(mylist_discipline,
+            .,
+            by = c("ID" = "Discipline_num")) %>% 
+  dplyr::select(-ID)
+
+
+
+# View the final discipline count data frame
+df_discipline_count
+
+x_labels <-  c("economics", "biology","agriculture","geography","sociology", 
+    "political science","environmental science", "others", "psychology", 
+    "consumer studies", "anthropology")
+
+plot_bar(df_discipline_count, "Discipline", x_labels, paste(fig_folder, "discipline_bar.pdf", sep =""))
+
+
+```
+
+# Geographical range
+
+
+
+
+```{r warning=FALSE}
+mylist_geographical_range <- tibble(
+  Description = c(
+"1=global",
+"2=Sub-Saharan Africa",
+"3=Northern Africa and Western Asia",
+"4=Central and Southern Asia",
+"5=Eastern and South-Eastern Asia",
+"6=Latin America and the Caribbean",
+"7=Australia and New Zealand",
+"8=Oceania",
+"9=Europe and Northern America")) %>% 
+  mutate(ID = 1:nrow(.))
+  
+
+
+
+df_geogrp_range <- df %>% 
+  dplyr::select(Geographical_range) %>% 
+  mutate(value_counts = str_count(Geographical_range, ";") + 1)
+
+max_value_geogrp <- max(df_geogrp_range$value_counts, na.rm = T)
+
+  ## then separate based on that
+df_geogrp_range_separated <-
+  separate(df_geogrp_range, 
+           col = Geographical_range, 
+           into = paste0("col", 1:max_value_geogrp), 
+           sep = ";", 
+           remove = FALSE) %>% 
+  mutate(across(starts_with("col"), as.numeric))
+
+
+# pivot longer 
+df_geogrp_range_longer <- df_geogrp_range_separated %>% 
+  pivot_longer(cols = starts_with("col"), 
+               names_to = "col_name", 
+               values_to = "Geographical_range_num")   
+
+
+# count the occurrences of each unique number
+df_geogrp_range_count <- df_geogrp_range_longer %>% 
+  group_by(Geographical_range_num) %>% 
+  summarise(Number_of_cases = n())
+
+
+# delete NA row and combine with correct names
+df_geogrp_range_count <- df_geogrp_range_count %>% 
+  filter(!is.na(Geographical_range_num)) %>% 
+  left_join(mylist_geographical_range, 
+            .,
+            by = c("ID" = "Geographical_range_num"))
+
+
+df_geogrp_range_count
+
+x_labels <- c("global", "Sub-Saharan Africa", "Northern Africa and Western       Asia", "Central and Southern Asia","Eastern and South-Eastern Asia", 
+  "Latin America and the Caribbean", "Australia and New Zealand", "Oceania",
+  "Europe and Northern America")
+
+plot_bar(df_geogrp_range_count, "Geographical range", x_labels, paste(fig_folder, "geographical_range_bar.pdf", sep =""))
+```
+
+
+# Scale of study 
+
+
+
+
+
+```{r warning=FALSE}
+mylist_scaleofstudy <- tibble(
+  Description =c(
+"1=global",
+"2=regional",
+"3=national",
+"4=regency/district",
+"5=village",
+"6=household/individual",
+"7=others",
+"8=not applicable",
+"9=not relevant")) %>% 
+  mutate(ID = 1:nrow(.))
+
+
+
+
+df_scaleofstudy <- df %>% 
+  dplyr::select(Scale_of_study) %>% 
+  mutate(value_counts = str_count(Scale_of_study, ";") + 1)
+
+max_value_scaleofstudy <- max(df_scaleofstudy$value_counts, na.rm = T)
+
+  ## then separate based on that
+df_scaleofstudy_separated <-
+  separate(df_scaleofstudy, 
+           col = Scale_of_study, 
+           into = paste0("col", 1:max_value_scaleofstudy), 
+           sep = ";", 
+           remove = FALSE) %>% 
+  mutate(across(starts_with("col"), as.numeric))
+
+
+# pivot longer 
+df_scaleofstudy_separated_longer <- df_scaleofstudy_separated %>% 
+  pivot_longer(cols = starts_with("col"), 
+               names_to = "col_name", 
+               values_to = "Scale_of_study_num")   
+
+
+# count the occurrences of each unique number
+df_scaleofstudy_count <- df_scaleofstudy_separated_longer %>% 
+  group_by(Scale_of_study_num) %>% 
+  summarise(Number_of_cases = n()) 
+
+
+df_scaleofstudy_count <- 
+  df_scaleofstudy_count %>% 
+  filter(!is.na(Scale_of_study_num)) %>% 
+  left_join(mylist_scaleofstudy, 
+            .,
+            by = c("ID" = "Scale_of_study_num"))
+
+
+
+
+df_scaleofstudy_count
+
+
+x_labels <- c("global","regional","national","regency/district","village","household/individual",
+"others","not applicable","not relevant")
+
+plot_bar(df_scaleofstudy_count, "Scale of study", x_labels, paste(fig_folder, "scale_of_study_bar.pdf", sep =""))
+
+```
+
+
+# Research topic
+
+
+
+```{r warning=FALSE}
+mylist_researchtopics <- tibble(
+  Description =
+    c("1=diet change",
+      "2=novel foods (e.g., vertical farming, cultivated meat in a laboratory, etc)",
+      "3=food loss/waste",
+      "4=nutrition/health",
+      "5=yield gaps closure (i.e., intensification)",
+      "6=climate change (i.e., GHG emissions)",
+      "7=biodiversity",
+      "8=freshwater and marine resources",
+      "9=land resources/land use and land cover change (LUCC)",
+      "10=soil health/soil degradation",
+      "11=precision agriculture",
+      "12=others (please specify in the next column)",
+      "13=other sustainable/good agricultural practices")) %>% 
+  mutate(ID = 1:nrow(.))
+
+
+df_researchtopic <- df %>% 
+  dplyr::select(Research_topic_effects) %>% 
+  mutate(value_counts = str_count(Research_topic_effects, ";") + 1)
+
+max_value_researchtopic <- max(df_researchtopic$value_counts, na.rm = T)
+
+## then separate based on that
+df_researchtopic_separated <-
+  separate(df_researchtopic, 
+           col = Research_topic_effects, 
+           into = paste0("col", 1:max_value_researchtopic), 
+           sep = ";", 
+           remove = FALSE) %>% 
+  mutate(across(starts_with("col"), as.numeric))
+
+
+# pivot longer 
+df_researchtopic_separated_longer <- df_researchtopic_separated %>% 
+  pivot_longer(cols = starts_with("col"), 
+               names_to = "col_name", 
+               values_to = "Research_topic_effects_num")   
+
+
+# count the occurrences of each unique number
+df_researchtopic_count <- df_researchtopic_separated_longer %>% 
+  group_by(Research_topic_effects_num) %>% 
+  summarise(Number_of_cases = n()) 
+
+
+df_researchtopic_count <- 
+  df_researchtopic_count %>% 
+  filter(!is.na(Research_topic_effects_num)) %>% 
+  left_join(mylist_researchtopics, 
+            .,
+            by = c("ID" = "Research_topic_effects_num"))
+
+
+df_researchtopic_count
+
+x_labels <- c("diet change", "novel foods", "food loss/waste",
+      "nutrition/health", "5=yield gaps closure", "climate change",
+      "biodiversity", "freshwater and marine resources",
+      "land resources/LUCC", "soil health/soil degradation",
+      "precision agriculture","others", "other sustainable/good agricultural practices")
+
+plot_bar(df_researchtopic_count, "Research topic / Food system effects", x_labels, paste(fig_folder, "research_topic_bar.pdf", sep =""))
+
+```
+
+
+# Socioeconomic attributes
+
+
+
+
+```{r warning=FALSE}
+mylist_socioeconomic <- tibble(
+  Description = c("1" = "social network",
+                              "2" = "gender/gender equality",
+                              "3" = "education/knowledge",
+                              "4" = "culture/values",
+                              "5" = "poverty/income",
+                              "6" = "agricultural subsidy",
+                              "7" = "infrastructure",
+                              "8" = "property rights",
+                              "9" = "political stability",
+                              "10" = "institutions",
+                              "11" = "Provision of information",
+                              "12" = "costs and prices",
+                              "13" = "others (please specify)",
+                              "14" = "age",
+                              "15" = "household size/family structure",
+                              "16" = "policy and regulations",
+                              "17" = "farm/land size",
+                              "18" = "credit")) %>% 
+    mutate(ID = 1:nrow(.))
+  
+
+
+df_socioeconomic <- df %>% 
+  dplyr::select(Socioeconomic_attributes_drivers) %>% 
+  mutate(value_counts = str_count(Socioeconomic_attributes_drivers, ";") + 1)
+
+max_value_socioeconomic <- max(df_socioeconomic$value_counts, na.rm = T)
+
+## then separate based on that
+df_socioeconomic_separated <-
+  separate(df_socioeconomic, 
+           col = Socioeconomic_attributes_drivers, 
+           into = paste0("col", 1:max_value_socioeconomic), 
+           sep = ";", 
+           remove = FALSE) %>% 
+  mutate(across(starts_with("col"), as.numeric))
+
+
+# pivot longer 
+df_socioeconomic_separated_longer <- df_socioeconomic_separated %>% 
+  pivot_longer(cols = starts_with("col"), 
+               names_to = "col_name", 
+               values_to = "Socioeconomic_attributes_drivers_num")   
+
+
+# count the occurrences of each unique number
+df_socioeconomic_count <- df_socioeconomic_separated_longer %>% 
+  group_by(Socioeconomic_attributes_drivers_num) %>% 
+  summarise(Number_of_cases = n()) 
+
+
+df_socioeconomic_count <- 
+  df_socioeconomic_count %>% 
+  filter(!is.na(Socioeconomic_attributes_drivers_num)) %>% 
+  left_join(mylist_socioeconomic, 
+            .,
+            by = c("ID" = "Socioeconomic_attributes_drivers_num"))
+
+
+df_socioeconomic_count
+
+x_labels <- c("social network","gender/gender equality","education/knowledge",
+                    "culture/values","poverty/income","agricultural subsidy",
+                    "infrastructure","property rights","political stability",
+                    "institutions", "Provision of information","costs and prices",
+                    "others","age","household size/family structure",
+                    "policy and regulations","farm/land size","credit")
+
+plot_bar(df_socioeconomic_count, "Socioeconomic attribute / Driver", x_labels, paste(fig_folder, "socioeconomic_attributes_bar.pdf", sep =""))
+
+
+```
+
+# Time scale
+
+
+```{r warning=FALSE}
+mylist_timescale <- tibble(
+  Description =
+    c("1=less than a year",
+      "2=one to five years",
+      "3=five to twenty years",
+      "4=twenty to fifty years",
+      "5=more than fifty years")) %>% 
+  mutate(ID = 1:nrow(.))
+
+
+df_timescale <- df %>% 
+  dplyr::select(Time_scale) %>% 
+  mutate(value_counts = str_count(Time_scale, ";") + 1)
+
+
+max_value_timescale <- max(df_timescale$value_counts, na.rm = T)
+
+
+df_timescale_separated <- 
+  separate(df_timescale, 
+           col = Time_scale, 
+           into = paste0("col", 1:max_value_timescale), 
+           sep = ";", 
+           remove = FALSE) %>% 
+  mutate(across(starts_with("col"), as.numeric))
+
+
+df_timescale_longer <- df_timescale_separated %>% 
+  pivot_longer(cols = starts_with("col"), 
+               names_to = "col_name", 
+               values_to = "Time_scale_num")   
+
+
+df_timescale_count <- df_timescale_longer %>% 
+  group_by(Time_scale_num) %>% 
+  summarise(Number_of_cases = n())
+
+
+df_timescale_count <- df_timescale_count %>% 
+  filter(!is.na(Time_scale_num)) %>% 
+  left_join(mylist_timescale, 
+            .,
+            by = c("ID" = "Time_scale_num"))
+
+
+
+df_timescale_count
+
+x_labels <-  c("less than a year","one to five years",
+      "five to twenty years","twenty to fifty years","more than fifty years")
+
+plot_bar(df_timescale_count, "Time scale", x_labels, paste(fig_folder, "time_scale_bar.pdf", sep =""))
+
+
+```
+
+
+# Direction of effects
+
+
+```{r warning=FALSE}
+mylist_direction_of_effects <- tibble(
+  Description =
+    c("1=positive",
+      "2=negative",
+      "3=others (including mix effects, combination, u-shape, etc)")) %>% 
+  mutate(ID = 1:nrow(.))
+
+df_direction_of_effects <- df %>% 
+  dplyr::select(Direction_of_effects) %>% 
+  mutate(value_counts = str_count(Direction_of_effects, ";") + 1)
+
+max_value_direction_of_effects <- max(df_direction_of_effects$value_counts, na.rm = T)
+
+df_direction_of_effects_separated <- 
+  separate(df_direction_of_effects, 
+           col = Direction_of_effects, 
+           into = paste0("col", 1:max_value_direction_of_effects), 
+           sep = ";", 
+           remove = FALSE) %>% 
+  mutate(across(starts_with("col"), as.numeric))
+
+df_direction_of_effects_longer <- df_direction_of_effects_separated %>% 
+  pivot_longer(cols = starts_with("col"), 
+               names_to = "col_name", 
+               values_to = "Direction_of_effects_num")   
+
+df_direction_of_effects_count <- df_direction_of_effects_longer %>% 
+  group_by(Direction_of_effects_num) %>% 
+  summarise(Number_of_cases = n())
+
+df_direction_of_effects_count <- df_direction_of_effects_count %>% 
+  filter(!is.na(Direction_of_effects_num)) %>%
+  left_join(mylist_direction_of_effects, 
+            .,
+            by = c("ID" = "Direction_of_effects_num"))  
+
+  
+
+df_direction_of_effects_count
+
+x_labels <-  c("positive", "negative", "others")
+
+plot_bar(df_direction_of_effects_count, "Direction of effects", x_labels, paste(fig_folder, "direction_effects_bar.pdf", sep =""))
+  
+  
+```
+
+
+# Plotting----------------------------------------------------------------------
+
+```{r}
+#radar plot function
+
+radar_plot <- function(df_plot, palette, legend_labs, axis_labs, save_filename,
+                       legend_title) {
+  
+  pdf(save_filename, width = 30/2.54)#, height =21/2.54)
+  
+  radarchart(df_plot, pcol = palette, plty = 1, plwd = 2, vlcex = 0.9,
+           cglcol="grey", cglty=1, axislabcol="grey", axistype = 4, cglwd=1,
+           calcex = 1, palcex = 2, caxislabels = axis_labs, pty = c(8,9,10,15,16,17,18))
+  
+  legend(x=1.5, y=1, legend = legend_labs, bty = "n", pch= c(8,9,10,15,16,17,18) ,
+           col=palette, pt.bg = palette, cex=0.75, pt.cex=1,
+           y.intersp = 1, x.intersp = 1, ncol = 1,
+           title = legend_title,
+           title.adj = 0, title.cex = 1 )
+  
+  dev.off()
+}
+```
+
+
+```{r}
+# stacked bar plot function
+
+stacked_bar_drivers_effects <- function(df_long, type, legend_lab, palette, save_filename){
+  
+  ncats = length(unique(df_long$Category))
+  
+  plt <- ggplot(df_long, aes(x = Region, y = N_papers)) + 
+    geom_col(aes(fill = Category), position = 'fill') +
+    scale_x_discrete(expand = c(0,0)) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+    scale_y_continuous(expand = c(0,0)) + 
+    scale_fill_manual(values = palette,
+                      name = type) +
+    ylab(paste("Share of papers inculding the", type)) +
+    xlab("Region") +
+    theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black"))
+  
+  (plt)
+  ggsave(save_filename, plt, width = 20, height = 20, units = "cm" )
+  
+}
+```
+
+
+# 1) Spider web diagrams of sos-ec drivers and food syst effects by region
+
+```{r}
+
+library(fmsb)
+library(radarchart)
+library(scico)
+library(qdapTools)
+library(RColorBrewer)
+library(wacolors)
+library(colorspace)
+
+
+regions <- c("h_Global", "f_Sub-Saharan Africa", "e_Northern Africa & Western Asia", "d_Central & Southern Asia","c_Eastern & South-Eastern Asia", 
+  "g_Latin America & the Caribbean", "Australia & New Zealand", "b_Oceania",
+  "a_Europe & Northern America")
+
+df_regions_enc <- mtabulate(strsplit(df$Geographical_range, ";")) %>%
+  dplyr::select(-c(`NA`, NR))
+  
+colnames(df_regions_enc) <- regions
+
+# combine Australia, NZ and Oceania under the name 'Australia & Oceania'
+df_regions_enc <- df_regions_enc %>%
+  mutate(Oceania_comb = ifelse(`Australia & New Zealand` == 1 | `b_Oceania` == 1, 1, 0)) %>%
+  dplyr::select(-c(`Australia & New Zealand`,`b_Oceania`)) %>%
+  rename(`b_Australia & Oceania` = Oceania_comb) %>%
+  dplyr::select(order(desc(colnames(.))))
+
+regions <- colnames(df_regions_enc) 
+
+#### DRIVERS ####
+
+# drivers separated and remapped into new codes
+df_reg_drivers <- df_regions_enc %>%
+  cbind(mtabulate(strsplit(df$Socioeconomic_attributes_drivers, ";"))) %>%
+  dplyr::select(-`13`) %>%
+  mutate(`_1` = ifelse(`1` == 1 | `4` == 1, 1, 0),
+         `_2` = ifelse(`2` == 1 | `14` == 1 | `15` == 1, 1, 0),
+         `_3` = ifelse(`3` == 1 | `11` == 1, 1, 0),
+         `_4` = ifelse(`5` == 1 | `12` == 1 | `18` == 1, 1, 0),
+         `_5` = ifelse(`7` == 1 | `8` == 1 | `10` == 1 | `17` == 1, 1, 0),
+         `_6` = ifelse(`9` == 1 | `16` == 1 | `6` == 1, 1, 0)) %>%
+  dplyr::select(any_of(c(regions, "_1","_2", "_3", "_4", "_5", "_6"))) %>%
+  rename("1" = "_1", "2" = "_2", "3" = "_3", "4" = "_4", "5" = "_5", "6" = "_6")
+
+df_reg_driver_sums <- data.frame("Driver" = paste("", seq(1:6), sep = ""))
+
+for (region in regions) {
+  reg_sums <- df_reg_drivers %>%
+    filter(.[[region]] == 1) %>%
+    dplyr::select(-(all_of(regions))) %>%
+    colSums() %>%
+    as.data.frame() %>%
+    cbind(rownames(.))
+  
+  colnames(reg_sums) <- c(region, "Driver")
+  df_reg_driver_sums <- df_reg_driver_sums %>%
+    left_join(reg_sums, by = "Driver")  
+}
+
+#drivers_palette <- c(brewer.pal(n = 11, 'PRGn')[1:3], brewer.pal(n = 11, 'PRGn')[9:11])
+drivers_palette <- c('#332288', '#332288', '#882255','#44AA99', '#44AA99', '#44AA99')
+
+# stacked bar chart
+df_reg_driver_sums <- df_reg_driver_sums %>%
+  mutate(Driver = c("f_network & values", "e_gender, age, & family",
+                   "d_education & information", "c_income & prices",
+                   "b_infrastructure & institutions",
+                   "a_politics & policy")) %>%
+  rename(Category = Driver)
+
+# df_reg_drivers_long <- df_reg_driver_sums %>%
+#   pivot_longer(cols = -Category,
+#                names_to = "Region",
+#                values_to = "N_papers")
+# 
+# stacked_bar_drivers_effects(df_reg_drivers_long, 'socioeconomic factor',
+#                             'Socioeconomic\nfactor', drivers_palette, 'figures/region_drivers_stacked.pdf')
+
+# radar chart
+
+df_reg_driver_plot <- df_reg_driver_sums %>%
+  arrange(Category) %>%
+  dplyr::select(-Category) %>%
+  # transform to study counts to percentage of studies per region
+  mutate_all(~ ./sum(.))
+
+
+
+max_all <- max(df_reg_driver_plot)
+min_all <- min(df_reg_driver_plot)
+df_reg_driver_plot <- rbind(rep(max_all,ncol(df_reg_driver_plot)) , 
+                            rep(min_all,ncol(df_reg_driver_plot)) , 
+                            df_reg_driver_plot)
+
+driver_labels <- c("a_politics & policy", "b_infrastructure & institutions",
+                   "c_income & prices", "d_education & information", 
+                   "e_gender, age, & family","f_network & values")
+
+axis_labs <- c("0.0", "0.07", "0.15", "0.22", "0.29")
+legend_title <- "Socioeconomic attribute" 
+
+radar_plot(df_reg_driver_plot, drivers_palette, driver_labels, axis_labs, 
+           paste(fig_folder,'region_drivers.pdf',sep = ''),
+           legend_title)
+
+
+##### EFFECTS ##### 
+
+# create dataframes where columns = regions, rows = effects
+
+df_reg_effects <- df_regions_enc %>%
+  cbind(mtabulate(strsplit(df$Research_topic_effects, ";"))) %>%
+  dplyr::select(-`12`) %>%
+  mutate(`_1` = ifelse(`1` == 1 | `2` == 1, 1, 0),
+         `_2` = ifelse(`3` == 1, 1, 0),
+         `_3` = ifelse(`4` == 1, 1, 0),
+         `_4` = ifelse(`5` == 1 | `11` == 1 | `13` == 1, 1, 0),
+         `_5` = ifelse(`6` == 1 | `7` == 1, 1, 0),
+         `_6` = ifelse(`8` == 1, 1, 0),
+         `_7` = ifelse(`9` == 1 | `10` == 1, 1, 0)) %>%
+  dplyr::select(any_of(c(regions, "_1","_2", "_3", "_4", "_5", "_6", "_7"))) %>%
+  rename("1" = "_1", "2" = "_2", "3" = "_3", "4" = "_4", "5" = "_5", "6" = "_6", "7" = "_7")
+
+df_reg_effect_sums <- data.frame("Effect" = paste("", seq(1:7), sep = ""))
+
+for (region in regions) {
+  reg_sums <- df_reg_effects %>%
+    filter(.[[region]] == 1) %>%
+    dplyr::select(-(all_of(regions))) %>%
+    colSums() %>%
+    as.data.frame() %>%
+    cbind(rownames(.))
+  
+  colnames(reg_sums) <- c(region, "Effect")
+  df_reg_effect_sums <- df_reg_effect_sums %>%
+    left_join(reg_sums, by = "Effect")  
+}
+#effects_palette <- c(brewer.pal(n = 11, 'RdYlBu')[9:11], brewer.pal(n = 11, 'RdYlBu')[1:2],
+#             brewer.pal(n = 11, 'RdYlBu')[4:5])
+effects_palette <- c('#AA4499','#AA4499','#AA4499','#88CCEE','#88CCEE','#6D6103','#6D6103')
+
+
+# stacked bar chart
+df_reg_effect_sums <- df_reg_effect_sums %>%
+  mutate(Effect = c("g_diet change & novel foods", "b_food loss & waste",
+      "f_nutrition & health","e_precision agriculture", "c_climate change & biodiversity",
+      "a_freshwater & marine resources", "d_land resources & soil health")) %>%
+  rename(Category = Effect)
+
+# df_reg_effects_long <- df_reg_effect_sums %>%
+#   pivot_longer(cols = -Category,
+#                names_to = "Region",
+#                values_to = "N_papers")
+# 
+# stacked_bar_drivers_effects(df_reg_effects_long, 'food system effect', 
+#                             'Food system effect', effects_palette, 'figures/region_effects_stacked.pdf')
+
+df_reg_effect_plot <- df_reg_effect_sums %>%
+  arrange(Category) %>%
+  dplyr::select(-Category) %>%
+  # transform to study counts to percentage of studies per region
+  mutate_all(~ ./sum(.))
+
+
+
+max_all <- max(df_reg_effect_plot)
+min_all <- min(df_reg_effect_plot)
+df_reg_effect_plot <- rbind(rep(max_all,ncol(df_reg_effect_plot)) , 
+                            rep(min_all,ncol(df_reg_effect_plot)) , 
+                            df_reg_effect_plot)
+
+
+effect_labels <- c("a_freshwater & marine resources", "b_food loss & waste",
+                   "c_climate change & biodiversity", "d_land resources & soil health" ,
+                   "e_precision agriculture", "f_nutrition & health", 
+                   "g_diet change & novel foods")
+
+axis_labs <- c("0", "0.09", "0.18", "0.27", "0.36")
+legend_title <- "Food system effect" 
+
+radar_plot(df_reg_effect_plot, effects_palette, effect_labels, axis_labs, 
+           paste(fig_folder,'region_effects.pdf',sep = ''),
+           legend_title)
+
+
+```
+
+
+# Regional bar plots of time scale, discipline and scale of study
+
+
+```{r}
+
+## TIMESCALE
+
+time_labels = c("a_less than a year",
+      "b_one to five years",
+      "c_five to twenty years",
+      "d_twenty to fifty years",
+      "e_more than fifty years")
+
+# Time scales separated and remapped into new codes
+df_reg_time <- df_regions_enc %>%
+  cbind(mtabulate(strsplit(df$Time_scale, ";"))) %>%
+  dplyr::select(-c(`NA`, NR)) # drop NA and NR = not applicable and not relevant
+
+df_reg_time_sums <- data.frame("Time_scale" = paste("", seq(1:5), sep = ""))
+
+for (region in regions) {
+  reg_sums <- df_reg_time %>%
+    filter(.[[region]] == 1) %>%
+    dplyr::select(-(all_of(regions))) %>%
+    colSums() %>%
+    as.data.frame() %>%
+    cbind(rownames(.))
+  
+  colnames(reg_sums) <- c(region, "Time_scale")
+  df_reg_time_sums <- df_reg_time_sums %>%
+    left_join(reg_sums, by = "Time_scale")  
+}
+
+df_reg_time_plot <- df_reg_time_sums %>%
+  dplyr::select(-Time_scale)  %>%
+  # transform to study counts to percentage of studies per region
+  mutate_all(~ ./sum(.) * 100) %>%
+  mutate(Variable = "Time_scale", 
+         label = time_labels)
+
+df_all_time_plot <- df_reg_time_sums %>%
+  dplyr::select(-Time_scale)  %>%
+  mutate(All = rowSums(as.matrix(.))/sum(as.matrix(.))*100)  %>%
+  dplyr::select(All) %>%
+  mutate(Variable = "Time_scale", 
+         label = time_labels)
+
+## DISCIPLINE ------------------------------------------------------------------
+
+# Disciplines separated and remapped into new codes
+df_reg_discip <- df_regions_enc %>%
+  cbind(mtabulate(strsplit(df$Discipline, ";")))
+                                                      
+# find the largest six disciplines, others disciplines will be combined under "others"
+sums_discip <- colSums(df_reg_discip[,9:19]) %>%
+  sort(decreasing = TRUE) %>%
+  head(6)
+
+(sums_discip)
+
+# manually combining smallest categories based on sums_disicp
+df_reg_discip <- df_reg_discip %>%
+mutate(`_8` = ifelse(`10` == 1 | `4` == 1 | `8` == 1 | `9` == 1 | `11` == 1, 1, 0)) %>%
+  dplyr::select(-c(`10`, `4`, `8`, `9`, `11`)) %>%
+  rename("8" = "_8")
+
+df_reg_discip_sums <- data.frame("Discipline" = c("1", "2", "3", "5", "6", "7", "8"))
+
+discip_labels <- c("economics", 
+    "biology", "agriculture", 
+    "sociology", "political science", 
+    "environmental science", "x_others")
+
+for (region in regions) {
+  reg_sums <- df_reg_discip %>%
+    filter(.[[region]] == 1) %>%
+    dplyr::select(-(all_of(regions))) %>%
+    colSums() %>%
+    as.data.frame() %>%
+    cbind(rownames(.))
+  
+  colnames(reg_sums) <- c(region, "Discipline")
+  df_reg_discip_sums <- df_reg_discip_sums %>%
+    left_join(reg_sums, by = "Discipline")  
+}
+
+df_reg_discip_plot <- df_reg_discip_sums %>%
+  dplyr::select(-Discipline) %>%
+  # transform to study counts to percentage of studies per region
+  mutate_all(~ ./sum(.)*100) %>%
+  mutate(Variable = "Discipline", 
+         label = discip_labels)
+
+df_all_discip_plot <- df_reg_discip_sums %>%
+  dplyr::select(-Discipline)  %>%
+  mutate(All = rowSums(as.matrix(.))/sum(as.matrix(.))*100)  %>%
+  dplyr::select(All) %>%
+  mutate(Variable = "Discipline", 
+         label = discip_labels)
+
+## SCALE OF STUDY --------------------------------------------------------------
+
+scale_labels = c("f_global","e_regional", "d_national","c_regency/district",
+"b_village","a_household/individual")
+
+# Scales of study separated and remapped into new codes
+df_reg_scale <- df_regions_enc %>%
+  cbind(mtabulate(strsplit(df$Scale_of_study, ";"))) %>%
+  dplyr::select(-c(`NA`, NR, `7`, `8`, `9`)) # drop not applicable, not relevant, their number code versions and "others"
+
+df_reg_scale_sums <- data.frame("Scale_of_study" = paste("", seq(1:6), sep = ""))
+
+for (region in regions) {
+  reg_sums <- df_reg_scale %>%
+    filter(.[[region]] == 1) %>%
+    dplyr::select(-(all_of(regions))) %>%
+    colSums() %>%
+    as.data.frame() %>%
+    cbind(rownames(.))
+  
+  colnames(reg_sums) <- c(region, "Scale_of_study")
+  df_reg_scale_sums <- df_reg_scale_sums %>%
+    left_join(reg_sums, by = "Scale_of_study")  
+}
+
+df_reg_scale_plot <- df_reg_scale_sums %>%
+  dplyr::select(-Scale_of_study) %>%
+  # transform to study counts to percentage of studies per region
+  mutate_all(~ ./sum(.) * 100) %>%
+  mutate(Variable = "Scale_of_study", 
+         label = scale_labels)
+
+df_all_scale_plot <- df_reg_scale_sums %>%
+  dplyr::select(-Scale_of_study)  %>%
+  mutate(All = rowSums(as.matrix(.))/sum(as.matrix(.))*100)  %>%
+  dplyr::select(All) %>%
+  mutate(Variable = "Scale_of_study", 
+         label = scale_labels)
+
+
+##  Create faceted plot combining regional statistics --------------------------
+
+# combine variables into long format dataframe
+
+reg_df_plot <- rbind(df_reg_time_plot, df_reg_discip_plot, df_reg_scale_plot)
+
+reg_df_long <- reg_df_plot %>% pivot_longer(cols = -c(Variable, label),
+                                            names_to = "Region",
+                                            values_to = "Share_of_papers")
+
+# plotting df for overall (=not regional) variables
+
+all_df_plot <- rbind(df_all_time_plot, df_all_discip_plot, df_all_scale_plot)
+
+
+# faceted barplot of individual regional variable plots
+
+plt_reg_bar <- ggplot(data = reg_df_long, aes(x = label, y = Share_of_papers)) +
+                      geom_bar(stat = 'identity', colour = 'grey75') +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+                      scale_x_discrete(expand = c(0,0)) +
+                       scale_y_continuous(expand = c(0,0)) +
+                      ylab("Share of papers in category (%)") +
+                      xlab("Category") +
+                      theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+                            panel.grid.major = element_blank(),
+                            panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+                      #coord_flip() +
+                      facet_wrap(~ Region + Variable, nrow = 9, ncol = 3, scales = "free_y") +
+                      theme(strip.background = element_blank(), strip.text.x = element_text(face = 'bold'),
+                            strip.clip = 'off')
+
+plt_reg_bar
+
+# faceted bar plot of the overall variable distributions
+
+plt_all_bar <- ggplot(data = all_df_plot, aes(x = label, y = All)) +
+                      geom_bar(stat = 'identity', fill = 'grey70') +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+                      scale_x_discrete(expand = c(0,0)) +
+                       scale_y_continuous(expand = c(0,0)) +
+                      ylab("Share of papers in category (%)") +
+                      xlab("Category") +
+                      theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+                            panel.grid.major = element_blank(),
+                            panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+                      #coord_flip() +
+                      facet_wrap(vars(Variable), nrow = 1, ncol = 3, scales = "free_x") +
+                      theme(strip.background = element_blank(), strip.text.x = element_text(face = 'bold'),
+                            strip.clip = 'off')
+
+plt_all_bar
+
+
+save_path <- paste(fig_folder, 'disicp_time_scale_all.pdf', sep = '')
+ggsave(save_path, plt_all_bar, units = "cm", width = 20, height = 10)
+
+
+# stacked bar plots of individual variables by region
+
+vars <- c("Time_scale", "Discipline", "Scale_of_study")
+
+for (var in vars){
+  
+  reg_df_var_long <- reg_df_long %>%
+    filter(Variable == var)
+  
+  n_vars = length(unique(reg_df_var_long$label))
+  
+  plt_reg_stacked <- ggplot(data = reg_df_var_long, aes(x = Region, y = Share_of_papers)) +
+                      geom_col(aes(fill = label), position = 'stack') +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+                      scale_fill_manual(values = scico(n = n_vars, palette = 'roma'),
+                      name = var) +
+                      scale_x_discrete(expand = c(0,0)) +
+                      scale_y_continuous(expand = c(0,0)) +
+                      ylab("Share of papers in region (%)") +
+                      xlab("Region") +
+                      theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+                            panel.grid.major = element_blank(),
+                            panel.background = element_blank(), axis.line = element_line(colour = "black"))
+                      
+  (plt_reg_stacked)
+  
+  save_path_stacked <- paste(fig_folder, var, '_regional_stacked.pdf', sep = '')
+  ggsave(save_path_stacked, plt_reg_stacked, units = "cm", width = 20, height = 15)
+
+  
+}
+
+
+
+```
+
+
+
+# Map of the geographical distribution of papers
+
+```{r}
+library(sf)
+library(tmap)
+
+sf::sf_use_s2(FALSE)
+
+cntry_geom_path <- 'ne_countries/ne_110m_admin_0_countries.shp'
+df_countries <- read_sf(cntry_geom_path) %>% dplyr::select(SOVEREIGNT, SUBREGION)
+
+# add column for custom geographical regions
+df_regions <- df_countries %>%
+    mutate(SDG_GROUP = case_when(SUBREGION %in% c("Melanesia")
+                                 ~ "Oceania",
+                                 SUBREGION %in% c("Eastern Africa", "Middle Africa",
+                                                  "Southern Africa", "Western Africa")
+                                 ~ "Sub-Saharan Africa",
+                                 SUBREGION %in% c("Northern Africa", "Western Asia")
+                                 ~ "Northern Africa and Western Asia",
+                                 SUBREGION %in% c("Central Asia", "Southern Asia")
+                                 ~ "Central and Southern Asia",
+                                 SUBREGION %in% c("South-Eastern Asia", "Eastern Asia")
+                                 ~ "Eastern and South-Eastern Asia",
+                                 SUBREGION %in% c("Caribbean", "South America",
+                                                  "Central America") 
+                                 ~ "Latin America and the Caribbean",
+                                 SUBREGION %in% c("Australia and New Zealand") 
+                                 ~ "Australia and New Zealand",
+                                 SUBREGION %in% c("Northern America", 
+                                                  "Eastern Europe", "Northern Europe",
+                                                  "Western Europe", "Southern Europe" ) 
+                                 ~ "Europe and Northern America",
+                                 SUBREGION %in% c("Antarctica",  "Seven seas (open ocean)")
+                                 ~ "Other")) %>% 
+                                group_by(SDG_GROUP) %>% 
+                                st_make_valid() %>%
+                                summarize()
+
+df_geogrp_range <- data.frame(lapply(df_geogrp_range_count, function(x) {gsub("\\d=", "", x)}))
+
+df_region_counts <- inner_join(df_regions, df_geogrp_range, by = c("SDG_GROUP" = "Description")) %>%
+                                mutate(Number_of_cases = as.numeric(Number_of_cases)) %>%
+                                arrange(desc(Number_of_cases))
+cases_global <- df_geogrp_range %>%
+  filter(Description == "global") %>%
+  dplyr::select(Number_of_cases) %>%
+  pull()
+  
+
+plt_num_papers_map <- tm_shape(df_region_counts) +
+                      tm_polygons(col = "Number_of_cases",
+                                  palette = "Blues",
+                                  style = 'cat',
+                                  title = "Number of papers",
+                                  legend.reverse = TRUE) +
+                      tm_borders(col = 'grey95', lwd = 0.1) +
+                      tm_layout(legend.position = c("left", "bottom")) + 
+                      tm_credits(paste("Global scale papers:", cases_global, sep = " "), 
+                                 position = c("left", "bottom"))
+
+(plt_num_papers_map)
+
+save_path <- paste(fig_folder, 'paper_distribution_map.pdf', sep="")
+tmap_save(plt_num_papers_map, save_path)
+
+
+```
+
+# Heatmap of drivers and effects, including all papers
+
+# heatmap function
+```{r}
+
+plot_heatmap <- function(df_long, fig_folder, region) {
+  
+  plt_heatmap <- ggplot(data = df_long, aes(x = Effect, y = Driver, fill = Number_of_papers)) +
+  geom_tile(height = 1, width = 1) + 
+  scale_fill_gradient(low = "white", high = 'grey40') +
+  ylab("Socioeconomic attribute") +
+  xlab("Food system effect") +
+  geom_text(aes(label = Number_of_papers)) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+                            panel.grid.major = element_blank(),
+                            panel.background = element_blank(), axis.line = element_blank()) +
+  coord_flip()
+
+plt_heatmap
+
+save_path <- paste(fig_folder, 'driver_effect_heatmap_', region, '.pdf', sep="") 
+ggsave(save_path, plt_heatmap, height = 11.5, width = 18.5, units = 'cm')
+
+  
+}
+
+```
+
+
+```{r}
+
+df_drivers_enc <- mtabulate(strsplit(df$Socioeconomic_attributes_drivers, ";")) %>%
+  dplyr::select(-c(`13`)) %>%
+  mutate(d1 = ifelse(`1` == 1 | `4` == 1, 1, 0),
+         d2 = ifelse(`2` == 1 | `14` == 1 | `15` == 1, 1, 0),
+         d3 = ifelse(`3` == 1 | `11` == 1, 1, 0),
+         d4 = ifelse(`5` == 1 | `12` == 1 | `18` == 1, 1, 0),
+         d5 = ifelse(`7` == 1 | `8` == 1 | `10` == 1 | `17` == 1, 1, 0),
+         d6 = ifelse(`9` == 1 | `16` == 1 | `6` == 1, 1, 0)) %>%
+  dplyr::select(any_of(c(regions, "d1","d2", "d3", "d4", "d5", "d6")))# %>%
+  #rename("1" = "_1", "2" = "_2", "3" = "_3", "4" = "_4", "5" = "_5", "6" = "_6") 
+  #rename_with( ~ paste0("d", .x))
+
+df_effects_enc <- (mtabulate(strsplit(df$Research_topic_effects, ";"))) %>%
+  dplyr::select(-`12`) %>%
+  mutate(e1 = ifelse(`1` == 1 | `2` == 1, 1, 0),
+         e2 = ifelse(`3` == 1, 1, 0),
+         e3 = ifelse(`4` == 1, 1, 0),
+         e4 = ifelse(`5` == 1 | `11` == 1 | `13` == 1, 1, 0),
+         e5 = ifelse(`6` == 1 | `7` == 1, 1, 0),
+         e6 = ifelse(`8` == 1, 1, 0),
+         e7 = ifelse(`9` == 1 | `10` == 1, 1, 0)) %>%
+  dplyr::select(any_of(c(regions, "e1","e2", "e3", "e4", "e5", "e6", "e7")))#%>%
+  #rename("1" = "_1", "2" = "_2", "3" = "_3", "4" = "_4", "5" = "_5", "6" = "_6", "7" = "_7")
+  #rename_with( ~ paste0("e", .x))
+
+
+df_drivers_effects_enc <- cbind(df_drivers_enc, df_effects_enc)
+
+df_driver_effect_sums <- data.frame("Driver" = paste("d", seq(1:6), sep = ""))# %>%
+ # filter(Driver != "d13")
+
+effects_list <- colnames(df_effects_enc)
+
+for (effect in effects_list) {
+  eff_sums <- df_drivers_effects_enc %>%
+    filter(.[[effect]] == 1) %>%
+    dplyr::select(-(all_of(effects_list))) %>%
+    colSums() %>%
+    as.data.frame() %>%
+    cbind(rownames(.))
+  
+  colnames(eff_sums) <- c(effect, "Driver")
+  df_driver_effect_sums <- df_driver_effect_sums %>%
+    left_join(eff_sums, by = "Driver")  
+}
+
+# rename drivers and effects
+
+effect_labels <- c("e_diet change & novel foods", "b_food loss & waste",
+      "d_nutrition & health","g_precision agriculture", "c_climate change & biodiversity",
+      "a_freshwater & marine resources", "f_land resources & soil health")
+
+driver_labels <- c("a_network & values", "b_gender, age, & family", 
+                   "c_education & information", "d_income & prices", 
+                   "e_infrastructure & institutions",
+                   "f_politics & policy")
+
+colnames(df_driver_effect_sums) <- c('Driver', effect_labels)
+
+df_driver_effect_sums <- df_driver_effect_sums %>%
+  mutate(Driver = driver_labels) %>%
+  dplyr::select(order(colnames(.)))
+
+df_drivers_effects_long <- df_driver_effect_sums %>%
+  pivot_longer(cols = -Driver,
+               names_to = 'Effect',
+               values_to = 'Number_of_papers')
+
+plot_heatmap(df_drivers_effects_long, fig_folder, 'all_regions')
+
+
+# regional heatmaps
+
+df_driver_effect_regions <- cbind(df_drivers_effects_enc, df_regions_enc)
+
+for (region in regions) {
+  
+  df_driver_effect_region <- df_driver_effect_regions %>%
+    filter(.[[region]] == 1) %>%
+    dplyr::select(-(all_of(regions)))
+  
+  df_driver_effect_sums <- data.frame("Driver" = paste("d", seq(1:6), sep = ""))# %>%
+ # filter(Driver != "d13")
+
+  effects_list <- colnames(df_effects_enc)
+  
+  for (effect in effects_list) {
+    eff_sums <- df_driver_effect_region %>%
+      filter(.[[effect]] == 1) %>%
+      dplyr::select(-(all_of(effects_list))) %>%
+      colSums() %>%
+      as.data.frame() %>%
+      cbind(rownames(.))
+    
+    colnames(eff_sums) <- c(effect, "Driver")
+    df_driver_effect_sums <- df_driver_effect_sums %>%
+      left_join(eff_sums, by = "Driver")  
+  }
+  
+  # rename drivers and effects
+  
+  effect_labels <- c("e_diet change & novel foods", "b_food loss & waste",
+      "d_nutrition & health","g_precision agriculture", "c_climate change & biodiversity",
+      "a_freshwater & marine resources", "f_land resources & soil health")
+
+  
+  driver_labels <- c("a_network & values", "b_gender, age, & family", 
+                     "c_education & information", "d_income & prices", 
+                     "e_infrastructure",
+                     "f_politics & policy")
+  
+  colnames(df_driver_effect_sums) <- c('Driver', effect_labels)
+  
+  df_driver_effect_sums <- df_driver_effect_sums %>%
+    mutate(Driver = driver_labels) %>%
+    dplyr::select(order(colnames(.)))
+  
+  df_drivers_effects_long <- df_driver_effect_sums %>%
+    pivot_longer(cols = -Driver,
+                 names_to = 'Effect',
+                 values_to = 'Number_of_papers')
+  
+  plot_heatmap(df_drivers_effects_long, fig_folder, region)
+
+     
+  
+}
+
+
+```
+
+# Author/reviewer bias analysis
+
+```{r}
+
+# Bar plot of article inclusion percentage per reviewer
+
+library(ggplot2)
+
+# Article inclusion percentage per author
+df_inclusion <- df_all %>%
+  dplyr::select(Included, Reviewer) %>%
+  mutate(Reviewer = ifelse(as.numeric(Reviewer)>= 10, paste0('x_', Reviewer), Reviewer)) %>%
+  filter(Included %in% c("0", "1")) %>%
+  group_by(Reviewer) %>%
+  summarize(N_included = sum(as.numeric(Included)),
+            Perc_included = sum(as.numeric(Included))/n()*100,
+            N_reviewed = n())
+
+inclusion_mean <- df_inclusion %>%
+  summarize(mean = mean(Perc_included)) %>%
+  pull()
+  
+
+
+plt_included <- ggplot(data = df_inclusion, aes(x=Reviewer, y=Perc_included)) +
+  geom_bar(stat = 'identity', fill = 'lightblue')  + 
+  #scale_fill_manual(palette = c('lightblue')) +
+  scale_y_continuous(limits = c(0,100),
+                     expand = c(0,0)) +
+  scale_x_discrete(expand= c(0,0)) +
+  geom_hline(aes(yintercept = inclusion_mean, linetype = 'Mean share of\npapers included (%)'), show.legend = TRUE) +
+  scale_linetype_manual(name = "", values = c(2)) +
+  ylab("Share of reviewed papers included (%)") +
+  xlab("Reviewer") +
+  theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(colour = 'grey80'), 
+          panel.grid.major.x = element_blank(),
+          panel.background = element_blank(), 
+          axis.line = element_line(colour = "black"))  
+
+
+plt_included
+
+ggsave(paste0(fig_folder, 'included_percentage.pdf'), plt_included)
+
+
+```
+```{r}
+
+# Box plot of numbers of drivers & effects identivied by each reviwer
+
+df_n_drivers_effects <- df_all %>%
+  filter(Included == "1") %>%
+  dplyr::select(Reviewer, Socioeconomic_attributes_drivers, Research_topic_effects) %>%
+  # separate individual drivers and effects into columns
+  separate(Socioeconomic_attributes_drivers, 
+           into = paste0("driver_", 1:18),
+           sep = ";",
+           remove = FALSE) %>%
+  separate(Research_topic_effects,
+           into = paste0("effect_", 1:13),
+           sep = ";",
+           remove = FALSE) %>%
+  # transform observations to binary and sum -> number of drivers & effects per paper
+  mutate_at(vars(driver_1:effect_13), ~ ifelse(is.na(.), 0, 1)) %>%
+  mutate(n_drivers = rowSums(across(driver_1:driver_18)),
+         n_effects = rowSums(across(effect_1:effect_13))) %>%
+  dplyr::select(c(Reviewer, n_drivers, n_effects))
+  
+# organize data for plotting
+
+df_n_drivers_effects_long <- df_n_drivers_effects %>%
+  mutate(Reviewer = ifelse(as.numeric(Reviewer)>= 10, paste0('x_', Reviewer), Reviewer)) %>%
+  arrange(Reviewer) %>%
+  pivot_longer(cols = -Reviewer,
+               names_to = "Extracted_information",
+               values_to = "N_per_article")
+  
+
+# plot
+plt_n_drivers_effects <- ggplot(df_n_drivers_effects_long, 
+                                aes(x = Reviewer, y = N_per_article,
+                                    fill = Extracted_information)) +
+  geom_boxplot(position = position_dodge()) +
+  scale_y_continuous(limits = c(0,13),
+                     expand = c(0,0)) +
+  scale_x_discrete(expand= c(0,0)) +
+  ylab("Number of drivers/effects identified per article") +
+  xlab("Reviewer") +
+  theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(colour = 'grey80'), 
+          panel.grid.major.x = element_blank(),
+          panel.background = element_blank(), 
+          axis.line = element_line(colour = "black"))  
+  
+  
+
+plt_n_drivers_effects
+
+# just drivers
+df_n_drivers_long <- df_n_drivers_effects_long %>%
+  filter(Extracted_information == 'n_drivers')
+
+plt_n_drivers <- ggplot(df_n_drivers_long, 
+                                aes(x = Reviewer, y = N_per_article)) +
+  geom_boxplot(fill = 'lightblue') +
+  scale_y_continuous(limits = c(0,13),
+                     expand = c(0,0)) +
+  scale_x_discrete(expand= c(0,0)) +
+  ylab("Number of drivers identified per article") +
+  xlab("Reviewer") +
+  theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(colour = 'grey80'), 
+          panel.grid.major.x = element_blank(),
+          panel.background = element_blank(), 
+          axis.line = element_line(colour = "black"))  
+  
+  
+
+plt_n_drivers
+
+ggsave(paste0(fig_folder, 'identified_drivers.pdf'), plt_n_drivers)
+
+# just effects
+df_n_effects_long <- df_n_drivers_effects_long %>%
+  filter(Extracted_information == 'n_effects')
+
+plt_n_effects <- ggplot(df_n_effects_long, 
+                                aes(x = Reviewer, y = N_per_article)) +
+  geom_boxplot(fill = 'lightblue') +
+  scale_y_continuous(limits = c(0,13),
+                     expand = c(0,0)) +
+  scale_x_discrete(expand= c(0,0)) +
+  ylab("Number of effects identified per article") +
+  xlab("Reviewer") +
+  theme(plot.background = element_blank(), panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(colour = 'grey80'), 
+          panel.grid.major.x = element_blank(),
+          panel.background = element_blank(), 
+          axis.line = element_line(colour = "black"))  
+  
+  
+
+plt_n_effects
+
+ggsave(paste0(fig_folder, 'identified_effects.pdf'), plt_n_effects)
+
+```
+
