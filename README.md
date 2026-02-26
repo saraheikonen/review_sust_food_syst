@@ -1,4 +1,4 @@
-## Visualizations for manuscript: Socioeconomic pathways toward sustainable food systems
+## A systematic review of sustainable food systems identifies socio-economic pathways driving food systems transformations
 Authors: Daniel Chrisendo, Sara Heikonen, Johannes Piipponen, Thomas Banafa, Delphine Deryng,
 Mohammad El-Wali, Matias Heino, Xavier Irz, Mika Jalava, Josias Láng-Ritter, Rachel Mazac,
 Venla Niva, Mia Pihlajamäki, Marja Roitto, Hanna Tuomisto, Matti Kummu
